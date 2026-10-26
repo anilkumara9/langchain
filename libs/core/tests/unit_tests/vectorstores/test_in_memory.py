@@ -47,6 +47,50 @@ async def test_inmemory_similarity_search_with_score() -> None:
     assert output[0][1] > output[1][1]
 
 
+async def test_inmemory_similarity_search_with_relevance_scores() -> None:
+    """Test relevance scores rescale cosine similarity from [-1, 1] to [0, 1]."""
+    store = await InMemoryVectorStore.afrom_texts(
+        ["foo", "bar"], DeterministicFakeEmbedding(size=8)
+    )
+
+    raw = store.similarity_search_with_score("foo", k=2)
+
+    # Check sync version
+    output = store.similarity_search_with_relevance_scores("foo", k=2)
+    assert [doc.page_content for doc, _ in output] == [
+        doc.page_content for doc, _ in raw
+    ]
+    for (_, raw_score), (_, relevance_score) in zip(raw, output, strict=True):
+        assert relevance_score == pytest.approx((raw_score + 1.0) / 2.0)
+        assert 0.0 <= relevance_score <= 1.0
+    assert output[0][0].page_content == "foo"
+    assert output[0][1] == pytest.approx(1.0)
+
+    # Check async version
+    output = await store.asimilarity_search_with_relevance_scores("foo", k=2)
+    assert output[0][0].page_content == "foo"
+    assert output[0][1] == pytest.approx(1.0)
+    assert all(0.0 <= score <= 1.0 for _, score in output)
+
+
+async def test_inmemory_retriever_similarity_score_threshold() -> None:
+    """Test the `similarity_score_threshold` retriever no longer raises."""
+    store = await InMemoryVectorStore.afrom_texts(
+        ["foo", "bar"], DeterministicFakeEmbedding(size=8)
+    )
+    retriever = store.as_retriever(
+        search_type="similarity_score_threshold",
+        search_kwargs={"score_threshold": 0.5, "k": 2},
+    )
+
+    # Only "foo" (relevance ~1.0) clears 0.5; "bar" (~0.33) is filtered out.
+    output = retriever.invoke("foo")
+    assert [doc.page_content for doc in output] == ["foo"]
+
+    output = await retriever.ainvoke("foo")
+    assert [doc.page_content for doc in output] == ["foo"]
+
+
 async def test_add_by_ids() -> None:
     """Test add texts with ids."""
     vectorstore = InMemoryVectorStore(embedding=DeterministicFakeEmbedding(size=6))

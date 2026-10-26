@@ -381,6 +381,16 @@ class InMemoryVectorStore(VectorStore):
         )
 
     @override
+    def _select_relevance_score_fn(self) -> Callable[[float], float]:
+        """Return a function to convert a similarity score to a relevance score.
+
+        `similarity_search_with_score` returns cosine similarity in `[-1, 1]`
+        (higher is more similar), not a distance, so it cannot use the base
+        class helpers that expect a distance. Rescale it to `[0, 1]`.
+        """
+        return lambda score: (score + 1.0) / 2.0
+
+    @override
     def similarity_search_by_vector(
         self,
         embedding: list[float],
